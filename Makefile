@@ -8,7 +8,8 @@ dep_certifi = hex 2.13.0
 dep_lager = git https://github.com/erlang-lager/lager.git
 dep_jsx = git https://github.com/talentdeficit/jsx.git
 
-SHELL_OPTS += -args_file config/vm.args -config config/sys.config -eval 'application:ensure_all_started(discorderl)'
+SHELL_OPTS += -args_file config/vm.args -config config/sys.config
+# -eval 'application:ensure_all_started(discorderl)'
 
 # Compile flags
 ERLC_COMPILE_OPTS= +'{parse_transform, lager_transform}'
@@ -19,4 +20,7 @@ TEST_ERLC_OPTS += $(ERLC_COMPILE_OPTS)
 REL_DEPS += relx
 
 LOCAL_DEPS += inets
+
+NO_MAKEDEP := 1
+ERL_FILES := $(shell find src -type f -name '*.erl')
 include erlang.mk
