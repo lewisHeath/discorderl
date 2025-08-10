@@ -73,6 +73,7 @@ handle_cast(_Msg, State) ->
 
 handle_info({gun_ws, _ConnPid, _StreamRef, {binary, Data}}, State0) ->
     #{s := S, op := OP, d := D, t:= T} = binary_to_term(Data),
+    ?DEBUG("Handling ~p S=~p T=~p D=~p", [?OPCODE_NAME(OP), S, T, D]),
     State = discord_api_gateway_handler:handle_gateway_event(OP, D, S, T, State0),
     {noreply, State};
 handle_info({gun_ws, ConnPid, StreamRef, {close, CloseCode, Reason}}, State0 = #ws_conn_state{conn_pid = ConnPid, stream_ref = StreamRef}) ->

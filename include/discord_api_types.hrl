@@ -12,6 +12,21 @@
 -define(INVALID_SESSION,       9).
 -define(HELLO,                 10).
 -define(HEARTBEAT_ACK,         11).
+-define(OPCODE_NAME(OpCode),
+    case OpCode of
+        ?DISPATCH              -> "DISPATCH";
+        ?HEARTBEAT             -> "HEARTBEAT";
+        ?IDENTIFY              -> "IDENTIFY";
+        ?PRESENCE_UPDATE       -> "PRESENCE_UPDATE";
+        ?VOICE_STATE_UPDATE    -> "VOICE_STATE_UPDATE";
+        ?RESUME                -> "RESUME";
+        ?RECONNECT             -> "RECONNECT";
+        ?REQUEST_GUILD_MEMBERS -> "REQUEST_GUILD_MEMBERS";
+        ?INVALID_SESSION       -> "INVALID_SESSION";
+        ?HELLO                 -> "HELLO";
+        ?HEARTBEAT_ACK         -> "HEARTBEAT_ACK";
+        _                      -> "UNKNOWN_OPCODE"
+    end).
 
 %%% ========================================
 %&& Gateway close event codes
