@@ -11,7 +11,6 @@
 -include("discord_api_types.hrl").
 -include("ws.hrl").
 -include("logging.hrl").
--include("discord_interaction.hrl").
 
 %% ==========================================================
 %% API
@@ -25,41 +24,24 @@
 %% ==========================================================
 handle_gateway_event(?DISPATCH, D, S, T, State) ->
     ?DEBUG("Handling DISPATCH T=~p D=~p", [T, D]),
-    case discord_events:get_function_handlers() of
-        #{T := FunctionHandlers} ->
-            [spawn(fun() -> Handler(T, D) end) || Handler <- FunctionHandlers];
-        _ ->
-            ok
-    end,
-    case discord_events:get_pid_handlers() of
-        #{T := PidHandlers} ->
-            %% cast messages to the handlers
-            [gen_server:cast(Handler, {T, D}) || Handler <- PidHandlers];
-        _ ->
-            ok
-    end,
+    notify_consumers(T, D),
     handle_dispatch(T, D, State#ws_conn_state{sequence_number = S});
-handle_gateway_event(?HEARTBEAT, D, _S, T, State) ->
-    ?DEBUG("Handling HEARTBEAT - d=~p t=~p", [D, T]),
+handle_gateway_event(?HEARTBEAT, _, _, _, State) ->
     heartbeat:send_heartbeat(),
     State;
-handle_gateway_event(?RECONNECT, D, _S, T, State) ->
-    ?DEBUG("Handling RECONNECT"),
+handle_gateway_event(?RECONNECT, _, _, _, State) ->
     discord_ws_conn:reconnect(resume, State);
-handle_gateway_event(?INVALID_SESSION, D, _S, T, State) ->
-    ?DEBUG("Handling INVALID_SESSION"),
+handle_gateway_event(?INVALID_SESSION, _, _, _, State) ->
     State;
-handle_gateway_event(?HELLO, D, _S, T, State = #ws_conn_state{reconnect = Reconnect}) ->
-    ?DEBUG("Handling HELLO T=~p D=~p", [T, D]),
+handle_gateway_event(?HELLO, D, _, _, State = #ws_conn_state{reconnect = Reconnect}) ->
     #{heartbeat_interval := HeartbeatInterval} = D,
     ?DEBUG("Starting heartbeat with an interval of ~pms", [HeartbeatInterval]),
     heartbeat:send_heartbeat(HeartbeatInterval),
     maybe_send_intents(Reconnect),
     State;
-handle_gateway_event(?HEARTBEAT_ACK, D, _S, T, State) ->
-    ?DEBUG("Handling HEARTBEAT_ACK"),
+handle_gateway_event(?HEARTBEAT_ACK, _, _, _, State) ->
     State;
-handle_gateway_event(UnknownOpcode, _, _S, _, State) ->
+handle_gateway_event(UnknownOpcode, _, _, _, State) ->
     ?WARNING("Unknown Opcode: ~p", [UnknownOpcode]),
     State.
 
@@ -83,3 +65,17 @@ handle_dispatch(_, _, State) ->
 
 maybe_send_intents(resume) -> ok;
 maybe_send_intents(_) -> dispatcher:send(intents:generate_intents_message()).
+
+notify_consumers(T, D) ->
+    case discord_events:get_function_handlers() of
+        [] ->
+            ok;
+        Handlers ->
+            [spawn(fun() -> Handler(T, D) end) || Handler <- Handlers]
+    end,
+    case discord_events:get_pid_handlers() of
+        [] ->
+            ok;
+        Pids ->
+            [gen_server:cast(Handler, {T, D}) || {Handler} <- Pids]
+    end.

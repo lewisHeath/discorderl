@@ -11,16 +11,15 @@
 generate_intents_message() ->
     #{
         ?OP => ?IDENTIFY,
-        ?D =>
-            #{
-                <<"token">> => list_to_binary(?BOT_TOKEN),
-                <<"properties">> => #{
-                    <<"os">> => <<"linux">>,
-                    <<"browser">> => <<"discord_api_erlang_libary">>,
-                    <<"device">> => <<"discord_api_erlang_libary">>
-                },
-                <<"intents">> => generate_intents()
-            }
+        ?D => #{
+            <<"token">> => list_to_binary(?BOT_TOKEN),
+            <<"properties">> => #{
+                <<"os">> => <<"linux">>,
+                <<"browser">> => <<"discord_api_erlang_libary">>,
+                <<"device">> => <<"discord_api_erlang_libary">>
+            },
+            <<"intents">> => generate_intents()
+        }
     }.
 
 generate_intents(ListOfIntents) ->
