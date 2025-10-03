@@ -2,11 +2,12 @@ PROJECT = discorderl
 PROJECT_DESCRIPTION = A discord api written in Erlang
 PROJECT_VERSION = 0.1.0
 
-DEPS = gun certifi lager jsx
+DEPS = gun certifi lager jsx observer_cli
 
 dep_certifi = hex 2.13.0
 dep_lager = git https://github.com/erlang-lager/lager.git
 dep_jsx = git https://github.com/talentdeficit/jsx.git
+dep_observer_cli = hex 1.8.3
 
 SHELL_OPTS += -args_file config/vm.args -config config/sys.config -eval 'application:ensure_all_started(discorderl)'
 
