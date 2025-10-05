@@ -4,10 +4,9 @@ pipeline {
         stage('Build') {
             steps {
                 sh 'echo "Building..."'
-                sh 'make distclean'
-                sh 'make deps'
-                sh 'make app'
                 sh 'which erl'
+                sh 'pwd'
+                sh 'make distclean'
                 sh 'make rel'
             }
         }
