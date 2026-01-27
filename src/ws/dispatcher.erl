@@ -29,7 +29,6 @@
 %% Macros.
 
 -include("logging.hrl").
--define(DELAY, 500).
 
 %% API.
 
@@ -54,8 +53,9 @@ start_link() ->
 %% gen_server.
 
 init([]) ->
-    % 50 reqs per second is 1 per ?DELAYms
-    erlang:send_after(?DELAY, self(), dispatch),
+    % 50 reqs per second is 1 per delay ms (default 500ms)
+    Delay = config:get_value(ws_dispatch_delay, 500),
+    erlang:send_after(Delay, self(), dispatch),
     {ok, #state{}}.
 
 handle_call(_Request, _From, State) ->
@@ -70,10 +70,12 @@ handle_info(dispatch, State = #state{batch = [Msg | T]}) ->
     {ConnPid, StreamRef} = discord_ws_conn:get_ws(),
     ?DEBUG("Dispatching msg=~p", [binary_to_term(Msg)]),
     gun:ws_send(ConnPid, StreamRef, {binary, Msg}),
-    erlang:send_after(?DELAY, self(), dispatch),
+    Delay = config:get_value(ws_dispatch_delay, 500),
+    erlang:send_after(Delay, self(), dispatch),
     {noreply, State#state{batch = T}};
 handle_info(dispatch, State = #state{batch = []}) ->
-    erlang:send_after(?DELAY, self(), dispatch),
+    Delay = config:get_value(ws_dispatch_delay, 500),
+    erlang:send_after(Delay, self(), dispatch),
     {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.

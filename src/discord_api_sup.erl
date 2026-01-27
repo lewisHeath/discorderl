@@ -9,6 +9,7 @@ start_link() ->
 
 init([]) ->
     Procs = [
+        rate_limiter:get_spec(),
         discord_ws_conn:get_spec(),
         heartbeat:get_spec(),
         dispatcher:get_spec(),

@@ -80,7 +80,7 @@ map_to_guild_member(Map) ->
         avatar = maps:get(<<"avatar">>, Map, undefined),
         banner = maps:get(<<"banner">>, Map, undefined),
         roles = maps:get(<<"roles">>, Map, []),
-        joined_at = maps:get(<<"joined_at">>, Map),
+        joined_at = maps:get(<<"joined_at">>, Map, undefined),
         premium_since = maps:get(<<"premium_since">>, Map, undefined),
         deaf = maps:get(<<"deaf">>, Map, false),
         mute = maps:get(<<"mute">>, Map, false),

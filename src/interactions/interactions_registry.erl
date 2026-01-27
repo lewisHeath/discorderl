@@ -75,7 +75,8 @@ register_pid(InteractionId, Pid) when is_pid(Pid) ->
             ok;
         [{InteractionId, Pids}] ->
             NewPids = lists:usort([Pid | Pids]),
-            ets:insert(interactions_pids, {InteractionId, NewPids})
+            ets:insert(interactions_pids, {InteractionId, NewPids}),
+            ok
     end.
 
 %% ==========================================================
