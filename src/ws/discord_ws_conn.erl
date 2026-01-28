@@ -99,6 +99,13 @@ handle_info({gun_error, _ConnPid, _StreamRef, Reason}, State) ->
 handle_info({gun_down, ConnPid, ws, closed, [StreamRef]}, State0 = #ws_conn_state{conn_pid = ConnPid, stream_ref = StreamRef}) ->
     State = reconnect(resume, State0),
     {noreply, State};
+handle_info({gun_down, ConnPid, ws, Reason, _}, State0 = #ws_conn_state{conn_pid = ConnPid}) ->
+    ?DEBUG("Connection down with reason: ~p", [Reason]),
+    State = reconnect(resume, State0),
+    {noreply, State};
+handle_info(reset_reconnect_attempts, State) ->
+    %% Called after successful READY/RESUMED to reset the counter
+    {noreply, State#ws_conn_state{reconnect_attempts = 0}};
 handle_info(Info, State) ->
     ?DEBUG("Handle info: ~p", [Info]),
     ?DEBUG("With State: ~p", [State]),
@@ -113,26 +120,56 @@ code_change(_OldVsn, State, _Extra) ->
 %% ==========================================================
 %% Internal Functions
 %% ==========================================================
-reconnect(resume, State = #ws_conn_state{resume_gateway_url = ResumeGatewayUrl, conn_pid = OldConnPid}) ->
+reconnect(resume, State = #ws_conn_state{
+    resume_gateway_url = ResumeGatewayUrl,
+    conn_pid = OldConnPid,
+    reconnect_attempts = Attempts,
+    max_reconnect_attempts = MaxAttempts
+}) when Attempts < MaxAttempts ->
+    %% Calculate backoff delay: min(2^attempts * 1000, 60000) ms
+    BackoffMs = min(trunc(math:pow(2, Attempts)) * 1000, 60000),
+    ?INFO("Reconnecting (attempt ~p/~p) after ~p ms", [Attempts + 1, MaxAttempts, BackoffMs]),
+    timer:sleep(BackoffMs),
+
     ?DEBUG("Closing ws connection"),
-    gun:close(OldConnPid),
-    % Open the connection to the resume url gateway
-    ?DEBUG("Opening new connection"),
-    {ok, ConnPid} = gun:open(ResumeGatewayUrl, 443,
-                            #{protocols => [http],
-                              retry => 0,
-                              transport => tls,
-                              tls_opts => [{verify, verify_none}, {cacerts, certifi:cacerts()}],
-                              http_opts => #{version => 'HTTP/1.1'}}),
-    % Await the successfull connection
-    ?DEBUG("Awaiting gun up"),
-    {ok, http} = gun:await_up(ConnPid),
-    % Upgrade to a websocket
-    ?DEBUG("Upgrading connection to ws"),
-    gun:ws_upgrade(ConnPid, "/?v=10&encoding=etf"),
-    State#ws_conn_state{conn_pid = ConnPid, reconnect = resume};
+    catch gun:close(OldConnPid),
+
+    %% Open the connection to the resume url gateway
+    ?DEBUG("Opening new connection to ~s", [ResumeGatewayUrl]),
+    case gun:open(ResumeGatewayUrl, 443,
+                  #{protocols => [http],
+                    retry => 0,
+                    transport => tls,
+                    tls_opts => [{verify, verify_none}, {cacerts, certifi:cacerts()}],
+                    http_opts => #{version => 'HTTP/1.1'}}) of
+        {ok, ConnPid} ->
+            case gun:await_up(ConnPid, 10000) of
+                {ok, http} ->
+                    ?DEBUG("Upgrading connection to ws"),
+                    gun:ws_upgrade(ConnPid, "/?v=10&encoding=etf"),
+                    State#ws_conn_state{
+                        conn_pid = ConnPid,
+                        reconnect = resume,
+                        reconnect_attempts = Attempts + 1
+                    };
+                {error, Reason} ->
+                    ?ERROR("Failed to await gun up: ~p", [Reason]),
+                    gun:close(ConnPid),
+                    reconnect(resume, State#ws_conn_state{reconnect_attempts = Attempts + 1})
+            end;
+        {error, Reason} ->
+            ?ERROR("Failed to open connection: ~p", [Reason]),
+            reconnect(resume, State#ws_conn_state{reconnect_attempts = Attempts + 1})
+    end;
+
+reconnect(resume, #ws_conn_state{conn_pid = ConnPid, max_reconnect_attempts = MaxAttempts}) ->
+    ?ERROR("Max reconnect attempts (~p) reached, giving up", [MaxAttempts]),
+    catch gun:close(ConnPid),
+    gen_server:stop(?MODULE, max_reconnect_attempts, 5000);
+
 reconnect(identify, #ws_conn_state{conn_pid = ConnPid}) ->
-    gun:close(ConnPid),
+    ?INFO("Reconnecting with fresh identify"),
+    catch gun:close(ConnPid),
     gen_server:stop(?MODULE, disconnected, 5000).
 
 get_bot_settings() ->

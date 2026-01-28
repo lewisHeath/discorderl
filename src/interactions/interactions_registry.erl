@@ -24,7 +24,29 @@ stop() ->
     ets:delete(interactions_functions),
     ets:delete(interactions_pids).
 
+%% Handle application commands (slash commands)
 handle_interaction(Interaction = #interaction{data = #application_command_data{id = Id}}) ->
+    dispatch_interaction(Id, Interaction);
+
+%% Handle message components (buttons, select menus, etc.)
+handle_interaction(Interaction = #interaction{data = #message_component_data{custom_id = CustomId}}) ->
+    dispatch_interaction(CustomId, Interaction);
+
+%% Handle autocomplete interactions
+handle_interaction(Interaction = #interaction{data = #autocomplete_data{id = Id}}) ->
+    dispatch_interaction(Id, Interaction);
+
+%% Handle modal submissions
+handle_interaction(Interaction = #interaction{data = #modal_submit_data{custom_id = CustomId}}) ->
+    dispatch_interaction(CustomId, Interaction);
+
+%% Handle unknown interaction types gracefully
+handle_interaction(#interaction{type = Type, data = Data}) ->
+    ?INFO("Unhandled interaction type ~p with data ~p", [Type, Data]),
+    ok.
+
+%% Internal dispatcher
+dispatch_interaction(Id, Interaction) ->
     case get_interaction_module(Id) of
         {ok, Module} ->
             ?DEBUG("Found module ~p for interaction ID ~p", [Module, Id]),

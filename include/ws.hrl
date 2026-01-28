@@ -6,5 +6,7 @@
     resume_gateway_url,
     session_id,
     sequence_number = 0,
-    reconnect
+    reconnect,
+    reconnect_attempts = 0,
+    max_reconnect_attempts = 10
 }).

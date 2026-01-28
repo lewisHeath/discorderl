@@ -117,3 +117,15 @@
     values :: [binary()] | undefined,
     components :: [map()] | undefined
 }).
+
+-record(modal_submit_data, {
+    custom_id :: binary(),
+    components :: [map()]
+}).
+
+-record(autocomplete_data, {
+    id :: binary(),
+    name :: binary(),
+    type :: integer(),
+    options :: [#application_command_option{}]
+}).

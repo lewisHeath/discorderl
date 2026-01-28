@@ -4,12 +4,15 @@ A production-ready Discord bot library for Erlang/OTP.
 
 ## Features
 
-- WebSocket gateway connection with automatic heartbeat
-- HTTP REST API with rate limiting
-- Slash command support with interaction handling
+- WebSocket gateway connection with automatic heartbeat and reconnection
+- HTTP REST API with rate limiting and automatic retry
+- Slash command support with easy command builder
+- Interaction handling (commands, buttons, select menus, modals, autocomplete)
 - Event-driven architecture with flexible handler registration
 - Ergonomic helper module for common operations
 - Comprehensive embed and component builders
+- Bot presence/status management
+- Guild/channel/user caching with automatic updates
 
 ## Installation
 
@@ -206,6 +209,139 @@ end).
 discord_events:register_pid_handler(<<"GUILD_MEMBER_ADD">>, self()).
 ```
 
+### Bot Presence/Status
+
+```erlang
+%% Set bot status
+discord:set_status(online).      %% online | idle | dnd | invisible
+
+%% Set activity
+discord:set_activity(playing, <<"Erlang">>).
+discord:set_activity(watching, <<"the logs">>).
+discord:set_activity(listening, <<"commands">>).
+discord:set_activity(competing, <<"a hackathon">>).
+
+%% Full presence control
+discord:set_presence(#{
+    status => <<"dnd">>,
+    activities => [#{<<"type">> => 0, <<"name">> => <<"with OTP">>}],
+    afk => false
+}).
+```
+
+### Slash Command Builder
+
+```erlang
+%% Create a simple command
+PingCmd = discord:command(<<"ping">>, <<"Check bot latency">>).
+
+%% Create a command with options
+GreetCmd = discord:command(<<"greet">>, <<"Greet a user">>, [
+    discord:command_option(user, <<"target">>, #{
+        description => <<"User to greet">>,
+        required => true
+    }),
+    discord:command_option(string, <<"message">>, #{
+        description => <<"Custom message">>,
+        required => false
+    })
+]).
+
+%% Register commands
+discord:register_guild_command(GuildId, PingCmd).
+discord:register_global_command(GreetCmd).
+
+%% Sync all commands at once (replaces existing)
+discord:sync_guild_commands(GuildId, [PingCmd, GreetCmd]).
+```
+
+### Modals
+
+```erlang
+%% Show a modal when button is clicked
+interactions_registry:register_function(<<"open_form">>, fun(Interaction) ->
+    Modal = discord:modal(<<"my_form">>, <<"Feedback Form">>, [
+        discord:action_row([
+            discord:text_input(<<"name">>, <<"Your Name">>, 1)  %% 1=Short
+        ]),
+        discord:action_row([
+            discord:text_input(<<"feedback">>, <<"Your Feedback">>, 2)  %% 2=Paragraph
+        ])
+    ]),
+    discord:show_modal(Interaction, Modal)
+end).
+
+%% Handle modal submission
+interactions_registry:register_function(<<"my_form">>, fun(Interaction) ->
+    discord:reply_ephemeral(Interaction, <<"Thanks for your feedback!">>)
+end).
+```
+
+### Select Menus
+
+```erlang
+%% String select menu
+Options = [
+    discord:select_menu_option(<<"Option 1">>, <<"opt1">>),
+    discord:select_menu_option(<<"Option 2">>, <<"opt2">>, #{
+        description => <<"This is option 2">>,
+        default => true
+    })
+],
+Menu = discord:select_menu(<<"my_select">>, Options, <<"Choose an option">>),
+Row = discord:action_row([Menu]),
+discord:reply(Interaction, <<"Pick one:">>, #{components => [Row]}).
+
+%% Other select types
+UserMenu = discord:user_select(<<"pick_user">>, <<"Select a user">>),
+RoleMenu = discord:role_select(<<"pick_role">>, <<"Select a role">>),
+ChannelMenu = discord:channel_select(<<"pick_channel">>, <<"Select a channel">>).
+```
+
+### Autocomplete
+
+```erlang
+%% Create command with autocomplete
+Cmd = discord:command(<<"search">>, <<"Search something">>, [
+    discord:command_option(string, <<"query">>, #{
+        description => <<"Search query">>,
+        required => true,
+        autocomplete => true
+    })
+]).
+
+%% Handle autocomplete
+interactions_registry:register_function(CmdId, fun(Interaction = #interaction{type = 4}) ->
+    %% Type 4 = autocomplete
+    Choices = [
+        discord:autocomplete_choice(<<"Result 1">>, <<"value1">>),
+        discord:autocomplete_choice(<<"Result 2">>, <<"value2">>)
+    ],
+    discord:autocomplete(Interaction, Choices);
+(Interaction) ->
+    %% Normal command execution
+    discord:reply(Interaction, <<"You searched!">>)
+end).
+```
+
+### Caching
+
+```erlang
+%% Initialize cache (call once after starting)
+discord:init_cache().
+
+%% Access cached data
+{ok, Guild} = discord:get_guild(GuildId).
+{ok, Channel} = discord:get_channel(ChannelId).
+{ok, User} = discord:get_user(UserId).
+{ok, Member} = discord:get_member(GuildId, UserId).
+{ok, Role} = discord:get_role(GuildId, RoleId).
+
+%% Get cache statistics
+Stats = discord:cache_stats().
+%% #{guilds => 5, channels => 50, users => 100, members => 200, roles => 25}
+```
+
 ## API Reference
 
 ### discord module (Helper Functions)
@@ -222,6 +358,9 @@ discord_events:register_pid_handler(<<"GUILD_MEMBER_ADD">>, self()).
 | `discord:followup(Interaction, Content)` | Send followup message |
 | `discord:edit_response(Interaction, Content)` | Edit original response |
 | `discord:delete_response(Interaction)` | Delete original response |
+| `discord:update_message(Interaction, Data)` | Update component's parent message |
+| `discord:show_modal(Interaction, Modal)` | Show a modal dialog |
+| `discord:autocomplete(Interaction, Choices)` | Respond to autocomplete |
 
 #### Messages
 
@@ -255,8 +394,48 @@ discord_events:register_pid_handler(<<"GUILD_MEMBER_ADD">>, self()).
 | `discord:button(CustomId, Label, Style)` | Create button (1-4) |
 | `discord:button_link(Url, Label)` | Create link button |
 | `discord:button_disabled(CustomId, Label, Style)` | Create disabled button |
-| `discord:select_menu(CustomId, Options, Placeholder)` | Create select menu |
-| `discord:text_input(CustomId, Label, Style)` | Create text input |
+| `discord:button_emoji(CustomId, Label, Style, Emoji)` | Button with emoji |
+| `discord:select_menu(CustomId, Options, Placeholder)` | String select menu |
+| `discord:select_menu_option(Label, Value)` | Select menu option |
+| `discord:user_select(CustomId, Placeholder)` | User select menu |
+| `discord:role_select(CustomId, Placeholder)` | Role select menu |
+| `discord:channel_select(CustomId, Placeholder)` | Channel select menu |
+| `discord:mentionable_select(CustomId, Placeholder)` | User/role select |
+| `discord:text_input(CustomId, Label, Style)` | Text input for modals |
+| `discord:modal(CustomId, Title, Components)` | Create modal |
+
+#### Presence
+
+| Function | Description |
+|----------|-------------|
+| `discord:set_status(Status)` | Set online/idle/dnd/invisible |
+| `discord:set_activity(Type, Name)` | Set activity (playing, watching, etc.) |
+| `discord:set_presence(Opts)` | Full presence control |
+
+#### Command Builder
+
+| Function | Description |
+|----------|-------------|
+| `discord:command(Name, Description)` | Create slash command |
+| `discord:command(Name, Description, Options)` | Command with options |
+| `discord:command_option(Type, Name, Opts)` | Create command option |
+| `discord:command_choice(Name, Value)` | Create option choice |
+| `discord:register_global_command(Cmd)` | Register global command |
+| `discord:register_guild_command(GuildId, Cmd)` | Register guild command |
+| `discord:sync_global_commands(Commands)` | Bulk overwrite global |
+| `discord:sync_guild_commands(GuildId, Commands)` | Bulk overwrite guild |
+
+#### Cache
+
+| Function | Description |
+|----------|-------------|
+| `discord:init_cache()` | Initialize cache updater |
+| `discord:get_guild(GuildId)` | Get cached guild |
+| `discord:get_channel(ChannelId)` | Get cached channel |
+| `discord:get_user(UserId)` | Get cached user |
+| `discord:get_member(GuildId, UserId)` | Get cached member |
+| `discord:get_role(GuildId, RoleId)` | Get cached role |
+| `discord:cache_stats()` | Get cache statistics |
 
 ### HTTP Modules
 
@@ -321,7 +500,8 @@ config:get_all().  %% [{Key, Value}, ...]
 discorderl_app
     └── discord_api_sup (supervisor)
             ├── rate_limiter (gen_server) - Rate limit management
-            ├── discord_ws_conn (gen_server) - WebSocket connection
+            ├── discord_cache (gen_server) - Guild/channel/user caching
+            ├── discord_ws_conn (gen_server) - WebSocket with auto-reconnect
             ├── heartbeat (gen_server) - Gateway heartbeat
             ├── dispatcher (gen_server) - Message queue dispatch
             └── discord_events (gen_server) - Event handler registry
@@ -334,6 +514,10 @@ HTTP Modules (stateless):
     ├── users_http - User operations
     ├── guilds_http - Guild operations
     └── channels_http - Channel operations
+
+Cache:
+    ├── discord_cache - ETS-based cache storage
+    └── cache_updater - Auto-updates from gateway events
 
 Helper:
     └── discord - Ergonomic API wrapper

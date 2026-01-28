@@ -7,10 +7,9 @@
     map_to_message/1,
     map_to_app_command_data/1,
     map_to_component_data/1,
-    % map_to_modal_data/1,
+    map_to_autocomplete_data/1,
+    map_to_modal_submit_data/1,
     map_to_command_option/1
-    % map_to_text_input_component/1
-    % map_to_action_row/1
 ]).
 
 -include("discord_interaction.hrl").
@@ -45,8 +44,11 @@ map_to_interaction(Map) ->
         attachment_size_limit = maps:get(<<"attachment_size_limit">>, Map, undefined)
     }.
 
-%% rest TODO
+%% Parse interaction data based on type
 map_to_interaction_data(?APPLICATION_COMMAND, Data) -> map_to_app_command_data(Data);
+map_to_interaction_data(?MESSAGE_COMPONENT, Data) -> map_to_component_data(Data);
+map_to_interaction_data(?APPLICATION_COMMAND_AUTOCOMPLETE, Data) -> map_to_autocomplete_data(Data);
+map_to_interaction_data(?MODAL_SUBMIT, Data) -> map_to_modal_submit_data(Data);
 map_to_interaction_data(_, _) -> undefined.
 
 map_to_user(Map) ->
@@ -145,5 +147,18 @@ map_to_component_data(Map) ->
         custom_id = maps:get(<<"custom_id">>, Map),
         component_type = maps:get(<<"component_type">>, Map),
         values = maps:get(<<"values">>, Map, [])
-        % resolved = maps:get(<<"resolved">>, Map, undefined)
+    }.
+
+map_to_autocomplete_data(Map) ->
+    #autocomplete_data{
+        id = maps:get(<<"id">>, Map),
+        name = maps:get(<<"name">>, Map),
+        type = maps:get(<<"type">>, Map),
+        options = [map_to_command_option(O) || O <- maps:get(<<"options">>, Map, [])]
+    }.
+
+map_to_modal_submit_data(Map) ->
+    #modal_submit_data{
+        custom_id = maps:get(<<"custom_id">>, Map),
+        components = maps:get(<<"components">>, Map, [])
     }.

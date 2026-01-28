@@ -1,6 +1,7 @@
 -module(discord).
 
 -include("discord_interaction.hrl").
+-include("presence.hrl").
 
 %% Interaction responses
 -export([
@@ -12,7 +13,10 @@
     followup/2,
     followup/3,
     edit_response/2,
-    delete_response/1
+    delete_response/1,
+    update_message/2,
+    show_modal/2,
+    autocomplete/2
 ]).
 
 %% Messages
@@ -21,6 +25,14 @@
     send_message/3,
     edit_message/3,
     delete_message/2
+]).
+
+%% Presence/Status
+-export([
+    set_status/1,
+    set_activity/2,
+    set_activity/3,
+    set_presence/1
 ]).
 
 %% Embed builder (fluent API)
@@ -48,9 +60,51 @@
     button/3,
     button_link/2,
     button_disabled/3,
+    button_emoji/4,
     select_menu/3,
+    select_menu_option/2,
+    select_menu_option/3,
+    user_select/2,
+    role_select/2,
+    channel_select/2,
+    mentionable_select/2,
     text_input/3,
     text_input/4
+]).
+
+%% Modals
+-export([
+    modal/2,
+    modal/3
+]).
+
+%% Slash Command Builder
+-export([
+    command/2,
+    command/3,
+    command_option/2,
+    command_option/3,
+    command_choice/2,
+    register_global_command/1,
+    register_guild_command/2,
+    sync_global_commands/1,
+    sync_guild_commands/2
+]).
+
+%% Autocomplete
+-export([
+    autocomplete_choice/2
+]).
+
+%% Cache access
+-export([
+    get_guild/1,
+    get_channel/1,
+    get_user/1,
+    get_member/2,
+    get_role/2,
+    cache_stats/0,
+    init_cache/0
 ]).
 
 %% Response types
@@ -152,6 +206,89 @@ edit_response(Interaction, Data) when is_map(Data) ->
 -spec delete_response(#interaction{}) -> discord_http:result().
 delete_response(Interaction) ->
     interaction_http:delete_original_response(Interaction).
+
+%% Update the message the component is attached to (for buttons/selects)
+-spec update_message(#interaction{}, map()) -> discord_http:result().
+update_message(Interaction, Data) ->
+    ResponseBody = #{
+        <<"type">> => ?UPDATE_MESSAGE,
+        <<"data">> => Data
+    },
+    interaction_http:create_response(Interaction, ResponseBody).
+
+%% Show a modal dialog
+-spec show_modal(#interaction{}, map()) -> discord_http:result().
+show_modal(Interaction, ModalData) ->
+    ResponseBody = #{
+        <<"type">> => ?MODAL,
+        <<"data">> => ModalData
+    },
+    interaction_http:create_response(Interaction, ResponseBody).
+
+%% Respond to autocomplete with choices
+-spec autocomplete(#interaction{}, [map()]) -> discord_http:result().
+autocomplete(Interaction, Choices) ->
+    ResponseBody = #{
+        <<"type">> => ?APPLICATION_COMMAND_AUTOCOMPLETE_RESULT,
+        <<"data">> => #{<<"choices">> => Choices}
+    },
+    interaction_http:create_response(Interaction, ResponseBody).
+
+%% ==========================================================
+%% Presence/Status
+%% ==========================================================
+
+%% Set bot status: online | idle | dnd | invisible
+-spec set_status(binary() | atom()) -> ok.
+set_status(Status) when is_atom(Status) ->
+    set_status(atom_to_binary(Status));
+set_status(Status) when Status =:= <<"online">>;
+                        Status =:= <<"idle">>;
+                        Status =:= <<"dnd">>;
+                        Status =:= <<"invisible">> ->
+    presence:update_presence(#presence{status = Status}).
+
+%% Set activity with type and name
+%% Type: playing | streaming | listening | watching | competing (or 0-5)
+-spec set_activity(atom() | integer(), binary()) -> ok.
+set_activity(Type, Name) ->
+    set_activity(Type, Name, #{}).
+
+-spec set_activity(atom() | integer(), binary(), map()) -> ok.
+set_activity(Type, Name, Opts) when is_atom(Type) ->
+    TypeInt = activity_type_to_int(Type),
+    set_activity(TypeInt, Name, Opts);
+set_activity(Type, Name, Opts) when is_integer(Type) ->
+    Activity = maps:merge(#{
+        <<"type">> => Type,
+        <<"name">> => Name
+    }, Opts),
+    Status = maps:get(status, Opts, <<"online">>),
+    presence:update_presence(#presence{
+        status = Status,
+        activities = [Activity]
+    }).
+
+%% Full presence control
+-spec set_presence(map()) -> ok.
+set_presence(Opts) ->
+    Status = maps:get(status, Opts, <<"online">>),
+    Activities = maps:get(activities, Opts, []),
+    Since = maps:get(since, Opts, null),
+    Afk = maps:get(afk, Opts, false),
+    presence:update_presence(#presence{
+        since = Since,
+        activities = Activities,
+        status = Status,
+        afk = Afk
+    }).
+
+activity_type_to_int(playing) -> 0;
+activity_type_to_int(streaming) -> 1;
+activity_type_to_int(listening) -> 2;
+activity_type_to_int(watching) -> 3;
+activity_type_to_int(custom) -> 4;
+activity_type_to_int(competing) -> 5.
 
 %% ==========================================================
 %% Messages
@@ -339,3 +476,229 @@ text_input(CustomId, Label, Style, Opts) ->
         <<"style">> => Style
     },
     maps:merge(Base, maps:with([<<"placeholder">>, <<"value">>, <<"required">>, <<"min_length">>, <<"max_length">>], Opts)).
+
+%% Create a button with emoji
+-spec button_emoji(binary(), binary(), integer(), binary() | map()) -> map().
+button_emoji(CustomId, Label, Style, Emoji) when is_binary(Emoji) ->
+    (button(CustomId, Label, Style))#{<<"emoji">> => #{<<"name">> => Emoji}};
+button_emoji(CustomId, Label, Style, Emoji) when is_map(Emoji) ->
+    (button(CustomId, Label, Style))#{<<"emoji">> => Emoji}.
+
+%% Create a select menu option
+-spec select_menu_option(binary(), binary()) -> map().
+select_menu_option(Label, Value) ->
+    #{<<"label">> => Label, <<"value">> => Value}.
+
+-spec select_menu_option(binary(), binary(), map()) -> map().
+select_menu_option(Label, Value, Opts) ->
+    Base = select_menu_option(Label, Value),
+    maps:merge(Base, maps:with([<<"description">>, <<"emoji">>, <<"default">>], Opts)).
+
+%% Create a user select menu
+-spec user_select(binary(), binary()) -> map().
+user_select(CustomId, Placeholder) ->
+    #{
+        <<"type">> => 5,  %% User Select
+        <<"custom_id">> => CustomId,
+        <<"placeholder">> => Placeholder
+    }.
+
+%% Create a role select menu
+-spec role_select(binary(), binary()) -> map().
+role_select(CustomId, Placeholder) ->
+    #{
+        <<"type">> => 6,  %% Role Select
+        <<"custom_id">> => CustomId,
+        <<"placeholder">> => Placeholder
+    }.
+
+%% Create a mentionable select menu (users + roles)
+-spec mentionable_select(binary(), binary()) -> map().
+mentionable_select(CustomId, Placeholder) ->
+    #{
+        <<"type">> => 7,  %% Mentionable Select
+        <<"custom_id">> => CustomId,
+        <<"placeholder">> => Placeholder
+    }.
+
+%% Create a channel select menu
+-spec channel_select(binary(), binary()) -> map().
+channel_select(CustomId, Placeholder) ->
+    #{
+        <<"type">> => 8,  %% Channel Select
+        <<"custom_id">> => CustomId,
+        <<"placeholder">> => Placeholder
+    }.
+
+%% ==========================================================
+%% Modals
+%% ==========================================================
+
+%% Create a modal
+-spec modal(binary(), binary()) -> map().
+modal(CustomId, Title) ->
+    #{
+        <<"custom_id">> => CustomId,
+        <<"title">> => Title,
+        <<"components">> => []
+    }.
+
+%% Create a modal with components (action rows containing text inputs)
+-spec modal(binary(), binary(), [map()]) -> map().
+modal(CustomId, Title, Components) ->
+    #{
+        <<"custom_id">> => CustomId,
+        <<"title">> => Title,
+        <<"components">> => Components
+    }.
+
+%% ==========================================================
+%% Slash Command Builder
+%% ==========================================================
+
+%% Command types
+-define(CHAT_INPUT, 1).
+-define(USER_COMMAND, 2).
+-define(MESSAGE_COMMAND, 3).
+
+%% Option types
+-define(OPT_SUB_COMMAND, 1).
+-define(OPT_SUB_COMMAND_GROUP, 2).
+-define(OPT_STRING, 3).
+-define(OPT_INTEGER, 4).
+-define(OPT_BOOLEAN, 5).
+-define(OPT_USER, 6).
+-define(OPT_CHANNEL, 7).
+-define(OPT_ROLE, 8).
+-define(OPT_MENTIONABLE, 9).
+-define(OPT_NUMBER, 10).
+-define(OPT_ATTACHMENT, 11).
+
+%% Create a slash command
+-spec command(binary(), binary()) -> map().
+command(Name, Description) ->
+    #{
+        <<"name">> => Name,
+        <<"description">> => Description,
+        <<"type">> => ?CHAT_INPUT
+    }.
+
+-spec command(binary(), binary(), [map()]) -> map().
+command(Name, Description, Options) ->
+    #{
+        <<"name">> => Name,
+        <<"description">> => Description,
+        <<"type">> => ?CHAT_INPUT,
+        <<"options">> => Options
+    }.
+
+%% Create a command option
+%% Type: string | integer | boolean | user | channel | role | mentionable | number | attachment
+-spec command_option(atom(), binary()) -> map().
+command_option(Type, Name) ->
+    command_option(Type, Name, #{}).
+
+-spec command_option(atom(), binary(), map()) -> map().
+command_option(Type, Name, Opts) ->
+    TypeInt = option_type_to_int(Type),
+    Description = maps:get(description, Opts, Name),
+    Required = maps:get(required, Opts, false),
+    Base = #{
+        <<"type">> => TypeInt,
+        <<"name">> => Name,
+        <<"description">> => Description,
+        <<"required">> => Required
+    },
+    %% Add optional fields
+    OptionalFields = [choices, min_value, max_value, min_length, max_length, autocomplete, channel_types],
+    lists:foldl(fun(Field, Acc) ->
+        case maps:get(Field, Opts, undefined) of
+            undefined -> Acc;
+            Value -> Acc#{atom_to_binary(Field) => Value}
+        end
+    end, Base, OptionalFields).
+
+%% Create a choice for string/integer options
+-spec command_choice(binary(), binary() | integer()) -> map().
+command_choice(Name, Value) ->
+    #{<<"name">> => Name, <<"value">> => Value}.
+
+%% Register a global command
+-spec register_global_command(map()) -> discord_http:result().
+register_global_command(Command) ->
+    commands_http:create_global_command(Command).
+
+%% Register a guild command
+-spec register_guild_command(binary(), map()) -> discord_http:result().
+register_guild_command(GuildId, Command) ->
+    commands_http:create_guild_command(GuildId, Command).
+
+%% Sync (bulk overwrite) global commands
+-spec sync_global_commands([map()]) -> discord_http:result().
+sync_global_commands(Commands) ->
+    commands_http:bulk_overwrite_global_commands(Commands).
+
+%% Sync (bulk overwrite) guild commands
+-spec sync_guild_commands(binary(), [map()]) -> discord_http:result().
+sync_guild_commands(GuildId, Commands) ->
+    commands_http:bulk_overwrite_guild_commands(GuildId, Commands).
+
+option_type_to_int(sub_command) -> ?OPT_SUB_COMMAND;
+option_type_to_int(sub_command_group) -> ?OPT_SUB_COMMAND_GROUP;
+option_type_to_int(string) -> ?OPT_STRING;
+option_type_to_int(integer) -> ?OPT_INTEGER;
+option_type_to_int(boolean) -> ?OPT_BOOLEAN;
+option_type_to_int(user) -> ?OPT_USER;
+option_type_to_int(channel) -> ?OPT_CHANNEL;
+option_type_to_int(role) -> ?OPT_ROLE;
+option_type_to_int(mentionable) -> ?OPT_MENTIONABLE;
+option_type_to_int(number) -> ?OPT_NUMBER;
+option_type_to_int(attachment) -> ?OPT_ATTACHMENT.
+
+%% ==========================================================
+%% Autocomplete
+%% ==========================================================
+
+%% Create an autocomplete choice
+-spec autocomplete_choice(binary(), binary() | integer() | float()) -> map().
+autocomplete_choice(Name, Value) ->
+    #{<<"name">> => Name, <<"value">> => Value}.
+
+%% ==========================================================
+%% Cache Access
+%% ==========================================================
+
+%% Initialize the cache updater (call once after starting the application)
+-spec init_cache() -> ok.
+init_cache() ->
+    cache_updater:init().
+
+%% Get a guild from cache
+-spec get_guild(binary()) -> {ok, map()} | {error, not_found}.
+get_guild(GuildId) ->
+    discord_cache:get_guild(GuildId).
+
+%% Get a channel from cache
+-spec get_channel(binary()) -> {ok, map()} | {error, not_found}.
+get_channel(ChannelId) ->
+    discord_cache:get_channel(ChannelId).
+
+%% Get a user from cache
+-spec get_user(binary()) -> {ok, map()} | {error, not_found}.
+get_user(UserId) ->
+    discord_cache:get_user(UserId).
+
+%% Get a member from cache
+-spec get_member(binary(), binary()) -> {ok, map()} | {error, not_found}.
+get_member(GuildId, UserId) ->
+    discord_cache:get_member(GuildId, UserId).
+
+%% Get a role from cache
+-spec get_role(binary(), binary()) -> {ok, map()} | {error, not_found}.
+get_role(GuildId, RoleId) ->
+    discord_cache:get_role(GuildId, RoleId).
+
+%% Get cache statistics
+-spec cache_stats() -> map().
+cache_stats() ->
+    discord_cache:stats().

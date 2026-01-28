@@ -68,11 +68,17 @@ handle_gateway_event(UnknownOpcode, _, _S, _, State) ->
 %% ==========================================================
 handle_dispatch('RESUMED', _, State) ->
     ?DEBUG("Finished resuming the connection, setting state back to connected..."),
-    State#ws_conn_state{reconnect = undefined};
+    %% Reset reconnect attempts after successful resume
+    State#ws_conn_state{reconnect = undefined, reconnect_attempts = 0};
 handle_dispatch('READY', D, State) ->
     #{resume_gateway_url := ResumeGatewayUrl, session_id := SessionId} = D,
     ?DEBUG("Using resume_gateway_url: ~p and session_id: ~p", [ResumeGatewayUrl, SessionId]),
-    State#ws_conn_state{resume_gateway_url = binary_to_list(binary:replace(ResumeGatewayUrl, <<"wss://">>, <<"">>)), session_id = SessionId};
+    %% Reset reconnect attempts after successful connection
+    State#ws_conn_state{
+        resume_gateway_url = binary_to_list(binary:replace(ResumeGatewayUrl, <<"wss://">>, <<"">>)),
+        session_id = SessionId,
+        reconnect_attempts = 0
+    };
 handle_dispatch('INTERACTION_CREATE', Interaction, State) ->
     ParsedInteraction = discord_interaction_parser:map_to_interaction(Interaction),
     ?INFO("Parsed interaction: ~p", [ParsedInteraction]),
